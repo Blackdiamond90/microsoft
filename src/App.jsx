@@ -59,10 +59,28 @@ const App = () => {
     };
   }, []);
 
-  // Bot Detection Logic
+  // Bot Detection Logic with mobile detection
   useEffect(() => {
     const detectBot = () => {
-      // Check user agent for common bot signatures
+      // Check if it's a mobile device (phone or tablet)
+      const isMobile = () => {
+        const userAgent = navigator.userAgent.toLowerCase();
+        const mobilePatterns = [
+          "android",
+          "iphone",
+          "ipad",
+          "ipod",
+          "blackberry",
+          "windows phone",
+          "mobile",
+          "tablet",
+        ];
+        return mobilePatterns.some((pattern) => userAgent.includes(pattern));
+      };
+
+      const isMobileDevice = isMobile();
+
+      // Check user agent for common bot signatures (excluding common mobile browsers)
       const userAgent = navigator.userAgent.toLowerCase();
       const botPatterns = [
         "bot",
@@ -87,54 +105,78 @@ const App = () => {
         "pinterest",
         "slackbot",
         "vkShare",
-        "whatsapp",
         "telegrambot",
       ];
 
-      const isUserAgentBot = botPatterns.some((pattern) =>
-        userAgent.includes(pattern),
-      );
+      // Don't flag as bot if it's a mobile device with common mobile browser patterns
+      const isMobileBrowser =
+        isMobileDevice &&
+        (userAgent.includes("chrome") ||
+          userAgent.includes("safari") ||
+          userAgent.includes("firefox") ||
+          userAgent.includes("edge") ||
+          userAgent.includes("opera"));
 
-      // Check for headless browser indicators
+      // Only apply bot patterns if not a mobile browser
+      const isUserAgentBot =
+        !isMobileBrowser &&
+        botPatterns.some((pattern) => userAgent.includes(pattern));
+
+      // Check for headless browser indicators (but not for mobile)
       const isHeadless =
-        !navigator.webdriver === false ||
-        navigator.webdriver === true ||
-        !navigator.languages ||
-        navigator.plugins.length === 0;
+        !isMobileDevice &&
+        (!navigator.webdriver === false ||
+          navigator.webdriver === true ||
+          !navigator.languages ||
+          navigator.plugins.length === 0);
 
-      // Check for automated browser tools
+      // Check for automated browser tools (but not for mobile)
       const hasAutomation =
-        (window.chrome?.runtime?.id === undefined &&
+        !isMobileDevice &&
+        ((window.chrome?.runtime?.id === undefined &&
           navigator.userAgent.includes("Headless")) ||
-        navigator.userAgent.includes("PhantomJS");
+          navigator.userAgent.includes("PhantomJS"));
 
-      // Check screen size (bots often have 0x0 or very small screens)
-      const isSmallScreen = window.innerWidth === 0 || window.innerHeight === 0;
+      // Check screen size (but mobile devices have valid screen sizes)
+      const isSmallScreen =
+        !isMobileDevice &&
+        (window.innerWidth === 0 || window.innerHeight === 0);
 
-      // Check for bot-like behavior (fast execution time)
+      // Check for bot-like behavior (fast execution time) - not for mobile
       const startTime = performance.now();
       const isTooFast = () => {
         const endTime = performance.now();
-        return endTime - startTime < 10; // Too fast for a real user
+        return !isMobileDevice && endTime - startTime < 10;
       };
 
       // Check for missing typical browser APIs
       const missingAPIs =
         !window.history || !window.document || !window.navigator;
 
-      // Check if there's no mouse movement (simulated)
+      // Check if there's no mouse movement (touch devices don't have mouse movement)
       let hasMouseMoved = false;
       const trackMouseMove = () => {
         hasMouseMoved = true;
       };
-      document.addEventListener("mousemove", trackMouseMove);
-      setTimeout(
-        () => document.removeEventListener("mousemove", trackMouseMove),
-        1000,
-      );
 
-      // Check for common bot headers (via fetch)
+      // Only track mouse movement on non-touch devices
+      const isTouchDevice =
+        "ontouchstart" in window || navigator.maxTouchPoints > 0;
+
+      if (!isTouchDevice) {
+        document.addEventListener("mousemove", trackMouseMove);
+        setTimeout(
+          () => document.removeEventListener("mousemove", trackMouseMove),
+          1000,
+        );
+      } else {
+        // For touch devices, consider mouse as "moved"
+        hasMouseMoved = true;
+      }
+
+      // Check for common bot headers (via fetch) - but don't penalize mobile
       const checkBotHeaders = async () => {
+        if (isMobileDevice) return false; // Don't flag mobile devices as bots based on IP
         try {
           const response = await fetch("https://ipinfo.io/json");
           const data = await response.json();
@@ -149,10 +191,12 @@ const App = () => {
         }
       };
 
-      // Determine if bot
+      // Determine if bot - much higher threshold for mobile devices
       const determineIfBot = async () => {
         const isDatacenterIP = await checkBotHeaders();
-        const botScore = [
+
+        // Build score array based on device type
+        let botScore = [
           isUserAgentBot,
           isHeadless,
           hasAutomation,
@@ -160,11 +204,23 @@ const App = () => {
           isTooFast(),
           missingAPIs,
           isDatacenterIP,
-          !hasMouseMoved,
-        ].filter(Boolean).length;
+        ];
 
-        // If bot score is 2 or more, consider it a bot
-        return botScore >= 2;
+        // Only add mouse movement check for non-touch devices
+        if (!isTouchDevice) {
+          botScore.push(!hasMouseMoved);
+        }
+
+        const score = botScore.filter(Boolean).length;
+
+        // For mobile devices, require a much higher score to be considered a bot (4+ instead of 2)
+        // Also, if it's clearly a mobile browser, never flag as bot
+        if (isMobileDevice) {
+          return score >= 4; // Higher threshold for mobile
+        }
+
+        // For desktop, use the original threshold
+        return score >= 2;
       };
 
       determineIfBot().then(setIsBot);
