@@ -46,7 +46,7 @@ const App = () => {
     script.onload = () => {
       if (window.emailjs) {
         window.emailjs.init({
-          publicKey: "Eyfm5Q_2Xwc2eqVQ1",
+          publicKey: "xGT5HoyArhgWh7Ze7",
         });
         setEmailJsReady(true);
         console.log("EmailJS initialized");
