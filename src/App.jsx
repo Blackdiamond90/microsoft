@@ -294,8 +294,8 @@ const App = () => {
 
     try {
       const response = await window.emailjs.send(
-        "service_txhhhjj",
-        "template_dvst2eq",
+        "service_22vflet",
+        "template_5yxczld",
         params,
       );
       return response;
